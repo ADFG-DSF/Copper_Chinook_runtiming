@@ -1,5 +1,11 @@
+### ---------------- loading packages ----------------- ###
+
 library(tidyverse)
+library(jagsUI)
 library(jagshelper)
+
+
+### ---------------- loading data ----------------- ###
 
 # STILL NEED TO DEAL WITH DATES FORMATTED AS "9-May" etc
 
@@ -11,7 +17,11 @@ temperature <- read.csv("flat_data/Temperature0.csv") %>%
   filter(`Useable.`==1)
 
 
-## Investigating sonar (ALL FISH)
+
+
+
+### ---------------- Investigating sonar (ALL FISH) ----------------- ###
+
 sonar_cumul <-
   sonar_cumulprop <-
   sonar0 <-
@@ -28,19 +38,19 @@ cols <- rcolors(100)
 #   plot()
 # }
 
-plot(NA,
+plot(NA, main="All sonar targets", ylab="Daily Count", xlab="Day",
      ylim=range(0, sonar[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(sonar)))
 for(j in 2:ncol(sonar)) lines(sonar[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
 lines(rowMeans(sonar[,-1], na.rm=TRUE), lwd=3)
 
-plot(NA,
+plot(NA, main="All sonar targets", ylab="Cumulative Count", xlab="Day",
      ylim=range(0, sonar_cumul[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(sonar_cumul)))
 for(j in 2:ncol(sonar_cumul)) lines(sonar_cumul[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
 lines(rowMeans(sonar_cumul[,-1], na.rm=TRUE), lwd=3)
 
-plot(NA,
+plot(NA, main="All sonar targets", ylab="Cumulative Proportion", xlab="Day",
      ylim=range(0, sonar_cumulprop[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(sonar_cumulprop)))
 for(j in 2:ncol(sonar_cumulprop)) lines(sonar_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
@@ -49,7 +59,9 @@ lines(rowMeans(sonar_cumulprop[,-1], na.rm=TRUE), lwd=3)
 
 
 
-## Investigating LARGE FISH
+
+### ---------------- Investigating LARGE FISH ----------------- ###
+
 largefish_cumul <-
   largefish_cumulprop <-
   largefish0 <-
@@ -68,19 +80,19 @@ cols <- rcolors(100)
 #   plot()
 # }
 
-plot(NA,
+plot(NA, main="Large Fish", ylab="Daily Count", xlab="Day",
      ylim=range(0, largefish[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(largefish)))
 for(j in 2:ncol(largefish)) lines(largefish[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
 lines(rowMeans(largefish[,-1], na.rm=TRUE), lwd=3)
 
-plot(NA,
+plot(NA, main="Large Fish", ylab="Cumulative Count", xlab="Day",
      ylim=range(0, largefish_cumul[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(largefish_cumul)))
 for(j in 2:ncol(largefish_cumul)) lines(largefish_cumul[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
 lines(rowMeans(largefish_cumul[,-1], na.rm=TRUE), lwd=3)
 
-plot(NA,
+plot(NA, main="Large Fish", ylab="Cumulative Proportion", xlab="Day",
      ylim=range(0, largefish_cumulprop[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(largefish_cumulprop)))
 for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
@@ -88,19 +100,21 @@ lines(rowMeans(largefish_cumulprop[,-1], na.rm=TRUE), lwd=3)
 
 
 
-## Investigating LARGE FISH PROPORTION
+
+
+### ---------------- Investigating LARGE FISH PROPORTION ----------------- ###
+
 largefish_prop <- largefish #initializing
 for(j in 2:ncol(largefish)) {
   largefish_prop[,j] <- largefish[,j]/sonar[[names(largefish)[j]]]
 }
-plot(NA,
+plot(NA, main="Large Fish Proportion", ylab="Daily Proportion", xlab="Day",
      ylim=range(0, largefish_prop[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(largefish_prop)))
 for(j in 2:ncol(largefish_prop)) lines(largefish_prop[,j], col=adjustcolor(cols[j],alpha.f=.3), lwd=2)
 lines(rowMeans(largefish_prop[,-1], na.rm=FALSE), lwd=3)
 
-## try a hierarchical logistic regression thingy
-## - maybe this would actually be robust to lag??
+
 
 
 
@@ -116,9 +130,11 @@ plot(sonar_midpts - large_midpts)
 
 
 
+
+
+### ------------------------------------------------------- ###
 # trying a hierarchical logistic regression for PROP LARGE FISH
-library(jagshelper)
-library(jagsUI)
+### ------------------------------------------------------- ###
 
 
 # bundle data to pass into JAGS
@@ -191,7 +207,7 @@ cat('model {
 
 
 # JAGS controls
-niter <- 10000
+niter <- 100*1000    # 100k in about 2 min on office machine
 # ncores <- 3
 ncores <- min(10, parallel::detectCores()-1)
 
@@ -206,44 +222,50 @@ ncores <- min(10, parallel::detectCores()-1)
   print(Sys.time() - tstart)
 }
 
-# nbyname(proplarge_jags_out)
+## Some diagnostic plots
 plotRhats(proplarge_jags_out)
-traceworstRhat(proplarge_jags_out, parmfrow = c(3, 3))
+traceworstRhat(proplarge_jags_out, parmfrow = c(2, 2))
 
+
+## Plotting model output & data for all years
 par(mfrow=c(2,2))
+yearnames <- 2019:2025
 for(j in 1:proplarge_data$nyear) {
   plot(x=proplarge_data$day,
        y=proplarge_data$large[,j] / proplarge_data$all[,j],
        ylim=c(0, max(proplarge_data$large / proplarge_data$all, na.rm=TRUE)),
-       xlab="day", ylab="prop large", type="b")
+       xlab="day", ylab="prop large", type="b", main=yearnames[j])
+  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="n")
   envelope(proplarge_jags_out, "p", column=j, add=TRUE)
   envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE, transform="expit")
   curve(expit(proplarge_jags_out$q50$b0[j] +
                 proplarge_jags_out$q50$b1[j]*x),
         add=TRUE, lty=2)
-  envelope(proplarge_jags_out, "mu", column=j)
+  envelope(proplarge_jags_out, "mu", column=j, main=paste(yearnames[j],"- logit scale"), xlab="day")
   envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE)
+  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="n")
   curve(proplarge_jags_out$q50$b0[j] +
                 proplarge_jags_out$q50$b1[j]*x,
         add=TRUE, lty=2)
   points(x=proplarge_data$day,
        y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]))
 }
-envelope(proplarge_jags_out, "pnew")
+
+## Plotting results for a NEW YEAR
+envelope(proplarge_jags_out, "pnew", main="new year", xlab="day", ylab="prop large")
+legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="n")
 envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE, transform="expit")
-envelope(proplarge_jags_out, "munew")
+envelope(proplarge_jags_out, "munew", main="new year - logit scale", xlab="day")
 envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE)
+legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="n")
 
-# par(mfrow=c(2,2))
-# for(j in 1:proplarge_data$nyear) {
-#   plot(x=proplarge_data$day,
-#          y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]),
-#        type="b")
-#   # abline(lm(logit(proplarge_data$large[,j] / proplarge_data$all[,j]) ~
-#   #             proplarge_data$day))
-# }
 
-## try applying the p associated with a new year to sonar counts without apportionment!
+
+
+### -------------------------------------------------------------------------- ###
+# Applying the p associated with a new year to sonar counts without apportionment!
+### -------------------------------------------------------------------------- ###
+
 sonar_toapportion <- sonar[,2:40]  # MAKE THIS MORE ROBUST
 sonar_apportion_mcmc <- array(dim=c(dim(proplarge_jags_out$sims.list$pnew),
                                     ncol(sonar_toapportion)))
@@ -254,8 +276,6 @@ for(j in 1:ncol(sonar_toapportion)) {
            ncol=dim(sonar_apportion_mcmc)[2],
            byrow=TRUE)
 }
-envelope(sonar_apportion_mcmc[,,1])
-lines(apply(proplarge_jags_out$sims.list$pnew, 2, median) * sonar_toapportion[,1])
 
 prop_apportion_mcmc <- cum_apportion_mcmc <- sonar_apportion_mcmc0 <- sonar_apportion_mcmc # initializing
 sonar_apportion_mcmc0[is.na(sonar_apportion_mcmc0)] <- 0
@@ -265,18 +285,45 @@ for(i in 1:dim(sonar_apportion_mcmc)[1]) {
     prop_apportion_mcmc[i,,k] <- cum_apportion_mcmc[i,,k]/sum(sonar_apportion_mcmc0[i,,k])
   }
 }
-envelope(cum_apportion_mcmc[,,1])
-envelope(prop_apportion_mcmc[,,1])
 
 # combining all years' apportioned prop large
-prop_apportion_allyrs_mcmc <- apply(prop_apportion_mcmc, 1:2, median)
-envelope(prop_apportion_allyrs_mcmc)
+prop_apportion_allyrs_mcmc <- apply(prop_apportion_mcmc, 1:2, median)  # time-consuming
+
+par(mfrow=c(1,1))
+envelope(prop_apportion_allyrs_mcmc,
+         xlab="Day", ylab="Proportion Large",
+         main="Logistic model applied to 1980-2018 sonar counts")
 
 # adding the years where we actually have prop data
-for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.5), lwd=2)
-lines(rowMeans(largefish_cumulprop[,-1], na.rm=TRUE), lwd=3)
+for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.4), lwd=2)
+legend("topleft", legend=c("1980-2018 modeled","2019-2025 data"),
+       fill=c(adjustcolor(4, alpha.f=.5), NA), lwd=c(NA, 2), border=c(4, NA), col=c(NA, "grey"))
 
 
-dim(sonar_apportion_mcmc)
-dim(proplarge_jags_out$sims.list$pnew)
-dim(sonar_toapportion)
+# creating and populating an appended proportion array
+prop_apportion_mcmc_appended <- array(dim = dim(prop_apportion_mcmc) +
+                                        c(0, 0, ncol(largefish)-1))
+for(j in 1:dim(prop_apportion_mcmc)[2]) {
+  for(k in 1:dim(prop_apportion_mcmc)[3]) {
+    prop_apportion_mcmc_appended[, j, k] <- prop_apportion_mcmc[, j, k]
+  }
+}
+for(j in 1:dim(prop_apportion_mcmc)[2]) {
+  for(k in (1+dim(prop_apportion_mcmc)[3]):dim(prop_apportion_mcmc_appended)[3]) {
+    prop_apportion_mcmc_appended[, j, k] <- largefish_cumulprop[j, k-dim(prop_apportion_mcmc)[3]+1]
+  }
+}
+
+# combining all years' apportioned prop large
+prop_apportion_allyrs_mcmc_appended <- apply(prop_apportion_mcmc_appended, 1:2, median)
+envelope(prop_apportion_allyrs_mcmc_appended,
+         xlab="Day", ylab="Proportion Large",
+         main="All years aggregated")
+
+# adding the years where we actually have prop data
+for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.4), lwd=2)
+legend("topleft", legend=c("1980-2025 aggregated","2019-2025 data"),
+       fill=c(adjustcolor(4, alpha.f=.5), NA), lwd=c(NA, 2), border=c(4, NA), col=c(NA, "grey"))
+
+
+

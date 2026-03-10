@@ -107,10 +107,6 @@ lines(rowMeans(largefish_prop[,-1], na.rm=FALSE), lwd=3)
 
 
 # do run midpoints align? sounds like an easyish check
-apply(largefish_cumulprop>.5, 2, which.max)
-plot(apply(sonar_cumulprop[,-1]>.5, 2, which.max), pch=16, col=4)
-points(apply(largefish_cumulprop[,-1]>.5, 2, which.max, pch=16, col=2))
-
 sonar_midpts <- apply(sonar_cumulprop[,-(1:40)]>.5, 2, which.max)
 large_midpts <- apply(largefish_cumulprop[,-1]>.5, 2, which.max)
 
@@ -134,24 +130,44 @@ proplarge_data <- list(
   nyear = ncol(largefish)-1
 )
 
+# proplarge_data$large <- cbind(round(as.matrix(largefish0[,-1])), 0)
+# proplarge_data$all <- cbind(as.matrix(sonar0[,-(1:(ncol(sonar)-ncol(largefish)+1))]), 0)
+# proplarge_data$nyear <- ncol(largefish)
+
+
 # specify model, which is written to a temporary file
 proplarge_jags <- tempfile()
 cat('model {
+  # for(j in 1:nyear) {
+  #     large[1,j] ~ dbin(p[1,j], all[1,j])
+  #     trend[1,j] <- b0[j] + b1[j]*day[1]
+  #     resid0[j] ~ dnorm(0, 0.01)
+  #     mu[1,j] <- trend[1,j] + resid0[j]
+  #     logit(p[1,j]) <- mu[1,j]
+  #   for(i in 2:nday) {
+  #     large[i,j] ~ dbin(p[i,j], all[i,j])
+  #     trend[i,j] <- b0[j] + b1[j]*day[i]
+  #     resid[i-1,j] <- mu[i-1,j] - trend[i-1,j]
+  #     # mu[i,j] <- trend[i,j] + phi*resid[i-1,j]
+  #     mu[i,j] ~ dnorm(trend[i,j] + phi*resid[i-1,j], tau)
+  #     logit(p[i,j]) <- mu[i,j]
+  #   }
+  # }
   for(j in 1:nyear) {
-      large[1,j] ~ dbin(p[1,j], all[1,j])
-      trend[1,j] <- b0[j] + b1[j]*day[1]
-      resid0[j] ~ dnorm(0, 0.01)
-      mu[1,j] <- trend[1,j] + resid0[j]
-      logit(p[1,j]) <- mu[1,j]
-    for(i in 2:nday) {
-      large[i,j] ~ dbin(p[i,j], all[i,j])
+    for(i in 1:nday) {
       trend[i,j] <- b0[j] + b1[j]*day[i]
-      resid[i-1,j] <- mu[i-1,j] - trend[i-1,j]
-      # mu[i,j] <- trend[i,j] + phi*resid[i-1,j]
-      mu[i,j] ~ dnorm(trend[i,j] + phi*resid[i-1,j], tau)
+      mu[i,j] ~ dnorm(trend[i,j], tau)
       logit(p[i,j]) <- mu[i,j]
+      large[i,j] ~ dbin(p[i,j], all[i,j])
     }
   }
+  for(i in 1:nday) {
+    trendnew[i] <- b0new + b1new*day[i]
+    munew[i] ~ dnorm(trendnew[i], tau)
+    logit(pnew[i]) <- munew[i]
+  }
+  b0new ~ dnorm(mu_b0, tau_b0)
+  b1new ~ dnorm(mu_b1, tau_b1)
 
   for(j in 1:nyear) {
     b0[j] ~ dnorm(mu_b0, tau_b0)
@@ -166,7 +182,7 @@ cat('model {
   tau_b1 <- pow(sig_b1, -2)
   sig_b1 ~ dunif(0, 10)
 
-  phi ~ dunif(0,.9) # dbeta(5,5)
+  # phi ~ dunif(0,.9) # dbeta(5,5)
   tau <- pow(sig, -2)
   sig ~ dunif(0, 10)
 
@@ -175,15 +191,16 @@ cat('model {
 
 
 # JAGS controls
-niter <- 100000
-ncores <- 3
-# ncores <- min(10, parallel::detectCores()-1)
+niter <- 10000
+# ncores <- 3
+ncores <- min(10, parallel::detectCores()-1)
 
 {
   tstart <- Sys.time()
   print(tstart)
   proplarge_jags_out <- jagsUI::jags(model.file=proplarge_jags, data=proplarge_data,
-                                     parameters.to.save=c("b0","b1","sig_b0","sig_b1","p","phi","mu","sig"),
+                                     parameters.to.save=c("b0","b1","sig_b0","sig_b1",
+                                                          "p","trend","mu","sig","pnew","trendnew","munew"),
                                      n.chains=ncores, parallel=T, n.iter=niter,
                                      n.burnin=niter/2, n.thin=niter/2000)
   print(Sys.time() - tstart)
@@ -200,22 +217,66 @@ for(j in 1:proplarge_data$nyear) {
        ylim=c(0, max(proplarge_data$large / proplarge_data$all, na.rm=TRUE)),
        xlab="day", ylab="prop large", type="b")
   envelope(proplarge_jags_out, "p", column=j, add=TRUE)
+  envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE, transform="expit")
   curve(expit(proplarge_jags_out$q50$b0[j] +
                 proplarge_jags_out$q50$b1[j]*x),
         add=TRUE, lty=2)
   envelope(proplarge_jags_out, "mu", column=j)
+  envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE)
   curve(proplarge_jags_out$q50$b0[j] +
                 proplarge_jags_out$q50$b1[j]*x,
         add=TRUE, lty=2)
   points(x=proplarge_data$day,
        y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]))
 }
+envelope(proplarge_jags_out, "pnew")
+envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE, transform="expit")
+envelope(proplarge_jags_out, "munew")
+envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE)
 
-par(mfrow=c(2,2))
-for(j in 1:proplarge_data$nyear) {
-  plot(x=proplarge_data$day,
-         y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]),
-       type="b")
-  abline(lm(logit(proplarge_data$large[,j] / proplarge_data$all[,j]) ~
-              proplarge_data$day))
+# par(mfrow=c(2,2))
+# for(j in 1:proplarge_data$nyear) {
+#   plot(x=proplarge_data$day,
+#          y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]),
+#        type="b")
+#   # abline(lm(logit(proplarge_data$large[,j] / proplarge_data$all[,j]) ~
+#   #             proplarge_data$day))
+# }
+
+## try applying the p associated with a new year to sonar counts without apportionment!
+sonar_toapportion <- sonar[,2:40]  # MAKE THIS MORE ROBUST
+sonar_apportion_mcmc <- array(dim=c(dim(proplarge_jags_out$sims.list$pnew),
+                                    ncol(sonar_toapportion)))
+for(j in 1:ncol(sonar_toapportion)) {
+  sonar_apportion_mcmc[,,j] <- proplarge_jags_out$sims.list$pnew *
+    matrix(sonar_toapportion[,j],
+           nrow=dim(sonar_apportion_mcmc)[1],
+           ncol=dim(sonar_apportion_mcmc)[2],
+           byrow=TRUE)
 }
+envelope(sonar_apportion_mcmc[,,1])
+lines(apply(proplarge_jags_out$sims.list$pnew, 2, median) * sonar_toapportion[,1])
+
+prop_apportion_mcmc <- cum_apportion_mcmc <- sonar_apportion_mcmc0 <- sonar_apportion_mcmc # initializing
+sonar_apportion_mcmc0[is.na(sonar_apportion_mcmc0)] <- 0
+for(i in 1:dim(sonar_apportion_mcmc)[1]) {
+  for(k in 1:dim(sonar_apportion_mcmc)[3]) {
+    cum_apportion_mcmc[i,,k] <- cumsum(sonar_apportion_mcmc0[i,,k])
+    prop_apportion_mcmc[i,,k] <- cum_apportion_mcmc[i,,k]/sum(sonar_apportion_mcmc0[i,,k])
+  }
+}
+envelope(cum_apportion_mcmc[,,1])
+envelope(prop_apportion_mcmc[,,1])
+
+# combining all years' apportioned prop large
+prop_apportion_allyrs_mcmc <- apply(prop_apportion_mcmc, 1:2, median)
+envelope(prop_apportion_allyrs_mcmc)
+
+# adding the years where we actually have prop data
+for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustcolor(cols[j],alpha.f=.5), lwd=2)
+lines(rowMeans(largefish_cumulprop[,-1], na.rm=TRUE), lwd=3)
+
+
+dim(sonar_apportion_mcmc)
+dim(proplarge_jags_out$sims.list$pnew)
+dim(sonar_toapportion)

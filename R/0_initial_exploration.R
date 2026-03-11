@@ -297,7 +297,10 @@ for(i in 1:dim(sonar_apportion_mcmc)[1]) {
 }
 
 # combining all years' apportioned prop large
-prop_apportion_allyrs_mcmc <- apply(prop_apportion_mcmc, 1:2, median)  # time-consuming
+# prop_apportion_allyrs_mcmc <- apply(prop_apportion_mcmc, 1:2, median)  # time-consuming
+prop_apportion_allyrs_mcmc <- prop_apportion_mcmc %>%
+  apply(., 3, \(x) x, simplify=FALSE) %>%
+  do.call(rbind, .)
 
 par(mfrow=c(1,1))
 envelope(prop_apportion_allyrs_mcmc,
@@ -325,7 +328,11 @@ for(j in 1:dim(prop_apportion_mcmc)[2]) {
 }
 
 # combining all years' apportioned prop large
-prop_apportion_allyrs_mcmc_appended <- apply(prop_apportion_mcmc_appended, 1:2, median)
+# prop_apportion_allyrs_mcmc_appended <- apply(prop_apportion_mcmc_appended, 1:2, median)
+prop_apportion_allyrs_mcmc_appended <- prop_apportion_mcmc_appended %>%
+  apply(., 3, \(x) x, simplify=FALSE) %>%
+  do.call(rbind, .)
+
 envelope(prop_apportion_allyrs_mcmc_appended,
          xlab="Day", ylab="Proportion Large",
          main="All years aggregated")

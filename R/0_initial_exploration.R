@@ -22,22 +22,20 @@ temperature <- read.csv("flat_data/Temperature0.csv") %>%
 
 ### ---------------- Investigating sonar (ALL FISH) ----------------- ###
 
+# calculating cumulative and cumulative proportion from counts
 sonar_cumul <-
   sonar_cumulprop <-
   sonar0 <-
   sonar # initializing
 for(j in 2:ncol(sonar)) {
-  sonar0[,j] <- ifelse(is.na(sonar[,j]), 0, sonar[,j])
+  sonar0[,j] <- ifelse(is.na(sonar[,j]), 0, sonar[,j])  # adding a record where missing counts are treated as 0
   sonar_cumul[,j] <- cumsum(sonar0[,j])
   sonar_cumulprop[,j] <- sonar_cumul[,j]/sum(sonar[,j], na.rm=TRUE)
 }
 
 cols <- rcolors(100)
-# plotlines <- function(x, col=NA) {
-#   if(is.na(col)) col <- rcolors(ncol(x))
-#   plot()
-# }
 
+par(mfrow=c(2,2))
 plot(NA, main="All sonar targets", ylab="Daily Count", xlab="Day",
      ylim=range(0, sonar[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(sonar)))
@@ -62,11 +60,13 @@ lines(rowMeans(sonar_cumulprop[,-1], na.rm=TRUE), lwd=3)
 
 ### ---------------- Investigating LARGE FISH ----------------- ###
 
+# calculating cumulative and cumulative proportion from counts
 largefish_cumul <-
   largefish_cumulprop <-
   largefish0 <-
   largefish # initializing
 for(j in 2:ncol(largefish)) {
+  # adding a record where missing counts are treated as 0
   largefish0[,j] <- ifelse(is.na(largefish[,j]), 0,
                            ifelse(largefish[,j] < 0, 0,
                                   largefish[,j]))
@@ -75,11 +75,8 @@ for(j in 2:ncol(largefish)) {
 }
 
 cols <- rcolors(100)
-# plotlines <- function(x, col=NA) {
-#   if(is.na(col)) col <- rcolors(ncol(x))
-#   plot()
-# }
 
+par(mfrow=c(2,2))
 plot(NA, main="Large Fish", ylab="Daily Count", xlab="Day",
      ylim=range(0, largefish[,-1], na.rm=TRUE), #log="y",
      xlim=c(1, nrow(largefish)))
@@ -104,6 +101,7 @@ lines(rowMeans(largefish_cumulprop[,-1], na.rm=TRUE), lwd=3)
 
 ### ---------------- Investigating LARGE FISH PROPORTION ----------------- ###
 
+# calculating large fish proportion
 largefish_prop <- largefish #initializing
 for(j in 2:ncol(largefish)) {
   largefish_prop[,j] <- largefish[,j]/sonar[[names(largefish)[j]]]
@@ -142,6 +140,7 @@ proplarge_data <- list(
   large = round(as.matrix(largefish0[,-1])),
   all = as.matrix(sonar0[,-(1:(ncol(sonar)-ncol(largefish)+1))]),
   day = 1:nrow(largefish),
+  day_c = 1:nrow(largefish) - mean(1:nrow(largefish)),  # recentering
   nday = nrow(largefish),
   nyear = ncol(largefish)-1
 )
@@ -171,24 +170,26 @@ cat('model {
   # }
   for(j in 1:nyear) {
     for(i in 1:nday) {
-      trend[i,j] <- b0[j] + b1[j]*day[i]
-      mu[i,j] ~ dnorm(trend[i,j], tau)
-      logit(p[i,j]) <- mu[i,j]
-      large[i,j] ~ dbin(p[i,j], all[i,j])
+      trend[i,j] <- b0[j] + b1[j]*day_c[i]   # logistic trend wrt day
+      mu[i,j] ~ dnorm(trend[i,j], tau)     # tau gives additional overdispersion sd
+      logit(p[i,j]) <- mu[i,j]             # logit link
+      large[i,j] ~ dbin(p[i,j], all[i,j])  # large fish assumed binomial
     }
   }
+
+  # posterior predictive for a new year with no binomial data
   for(i in 1:nday) {
-    trendnew[i] <- b0new + b1new*day[i]
+    trendnew[i] <- b0new + b1new*day_c[i]
     munew[i] ~ dnorm(trendnew[i], tau)
     logit(pnew[i]) <- munew[i]
   }
-  b0new ~ dnorm(mu_b0, tau_b0)
-  b1new ~ dnorm(mu_b1, tau_b1)
 
   for(j in 1:nyear) {
     b0[j] ~ dnorm(mu_b0, tau_b0)
     b1[j] ~ dnorm(mu_b1, tau_b1)
   }
+  b0new ~ dnorm(mu_b0, tau_b0)
+  b1new ~ dnorm(mu_b1, tau_b1)
 
   mu_b0 ~ dnorm(0, 0.001)
   tau_b0 <- pow(sig_b0, -2)
@@ -223,8 +224,17 @@ ncores <- min(10, parallel::detectCores()-1)
 }
 
 ## Some diagnostic plots
+par(mfrow=c(1,1))
 plotRhats(proplarge_jags_out)
 traceworstRhat(proplarge_jags_out, parmfrow = c(2, 2))
+
+par(mfrow=c(2,2))
+# crossplot(proplarge_jags_out, p=c("b0", "b1"), col="random")
+# crossplot(proplarge_jags_out, p=c("b0", "b1"), drawx = TRUE, col="random")
+crossplot(proplarge_jags_out, p=c("b0", "b1"), drawblob = TRUE, col="random")
+crossplot(proplarge_jags_out, p=c("sig_b0", "sig_b1"), drawblob = TRUE)
+crossplot(proplarge_jags_out, p=c("sig", "sig_b0"), drawblob = TRUE)
+crossplot(proplarge_jags_out, p=c("sig", "sig_b1"), drawblob = TRUE)
 
 
 ## Plotting model output & data for all years
@@ -235,29 +245,29 @@ for(j in 1:proplarge_data$nyear) {
        y=proplarge_data$large[,j] / proplarge_data$all[,j],
        ylim=c(0, max(proplarge_data$large / proplarge_data$all, na.rm=TRUE)),
        xlab="day", ylab="prop large", type="b", main=yearnames[j])
-  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="n")
+  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="o")
   envelope(proplarge_jags_out, "p", column=j, add=TRUE)
   envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE, transform="expit")
-  curve(expit(proplarge_jags_out$q50$b0[j] +
-                proplarge_jags_out$q50$b1[j]*x),
-        add=TRUE, lty=2)
+  # curve(expit(proplarge_jags_out$q50$b0[j] +
+  #               proplarge_jags_out$q50$b1[j]*x),
+  #       add=TRUE, lty=2)
   envelope(proplarge_jags_out, "mu", column=j, main=paste(yearnames[j],"- logit scale"), xlab="day")
   envelope(proplarge_jags_out, "trend", column=j, col=2, add=TRUE)
-  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="n")
-  curve(proplarge_jags_out$q50$b0[j] +
-                proplarge_jags_out$q50$b1[j]*x,
-        add=TRUE, lty=2)
+  legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="o")
+  # curve(proplarge_jags_out$q50$b0[j] +
+  #               proplarge_jags_out$q50$b1[j]*x,
+  #       add=TRUE, lty=2)
   points(x=proplarge_data$day,
        y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]))
 }
 
 ## Plotting results for a NEW YEAR
 envelope(proplarge_jags_out, "pnew", main="new year", xlab="day", ylab="prop large")
-legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="n")
-envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE, transform="expit")
+# legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","pnew"), bty="o")
+# envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE, transform="expit")
 envelope(proplarge_jags_out, "munew", main="new year - logit scale", xlab="day")
-envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE)
-legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="n")
+# envelope(proplarge_jags_out, "trendnew", col=2, add=TRUE)
+# legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","mu"), bty="o")
 
 
 

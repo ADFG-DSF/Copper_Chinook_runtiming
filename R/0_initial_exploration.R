@@ -134,10 +134,14 @@ plot(sonar_midpts - large_midpts)
 # trying a hierarchical logistic regression for PROP LARGE FISH
 ### ------------------------------------------------------- ###
 
+# let's see what happens when we remove zeroes
+largefishNA <- largefish
+largefishNA[largefishNA <= 0] <- NA
 
 # bundle data to pass into JAGS
 proplarge_data <- list(
-  large = round(as.matrix(largefish0[,-1])),
+  # large = round(as.matrix(largefish0[,-1])),
+  large = round(as.matrix(largefishNA[,-1])),
   all = as.matrix(sonar0[,-(1:(ncol(sonar)-ncol(largefish)+1))]),
   day = 1:nrow(largefish),
   day_c = 1:nrow(largefish) - mean(1:nrow(largefish)),  # recentering
@@ -258,6 +262,17 @@ crossplot(proplarge_jags_out, p=c("sig_b0", "sig_b1"), drawblob = TRUE)
 crossplot(proplarge_jags_out, p=c("sig", "sig_b0"), drawblob = TRUE)
 crossplot(proplarge_jags_out, p=c("sig", "sig_b1"), drawblob = TRUE)
 
+caterpillar(proplarge_jags_out, "b0")
+caterpillar(proplarge_jags_out, "b1")
+# envelope(proplarge_jags_out, "trend", column=1)
+# for(j in 2:7) envelope(proplarge_jags_out, "trend", column=j, add=TRUE)
+
+envelope(proplarge_jags_out, "munew")
+for(j in 1:7) curve((proplarge_jags_out$q50$b0[j] + proplarge_jags_out$q50$b1[j]*x), add=TRUE)
+
+envelope(proplarge_jags_out, "pnew")
+# for(j in 1:7) lines(proplarge_jags_out$q50$p[,j])
+for(j in 1:7) curve(expit(proplarge_jags_out$q50$b0[j] + proplarge_jags_out$q50$b1[j]*x), add=TRUE)
 
 ## Plotting model output & data for all years
 par(mfrow=c(2,2))

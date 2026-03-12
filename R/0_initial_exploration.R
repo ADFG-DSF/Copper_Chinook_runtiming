@@ -170,7 +170,8 @@ cat('model {
   # }
   for(j in 1:nyear) {
     for(i in 1:nday) {
-      trend[i,j] <- b0[j] + b1[j]*day_c[i]   # logistic trend wrt day
+      # trend[i,j] <- b0[j] + b1[j]*day_c[i]   # logistic trend wrt day
+      trend[i,j] <- b0[j] + b1[j]*day[i]   # logistic trend wrt day
       mu[i,j] ~ dnorm(trend[i,j], tau)     # tau gives additional overdispersion sd
       logit(p[i,j]) <- mu[i,j]             # logit link
       large[i,j] ~ dbin(p[i,j], all[i,j])  # large fish assumed binomial
@@ -179,17 +180,38 @@ cat('model {
 
   # posterior predictive for a new year with no binomial data
   for(i in 1:nday) {
-    trendnew[i] <- b0new + b1new*day_c[i]
+    # trendnew[i] <- b0new + b1new*day_c[i]
+    trendnew[i] <- b0new + b1new*day[i]
     munew[i] ~ dnorm(trendnew[i], tau)
     logit(pnew[i]) <- munew[i]
   }
 
+  # for(j in 1:nyear) {
+  #   b0[j] ~ dnorm(mu_b0, tau_b0)
+  #   b1[j] ~ dnorm(mu_b1, tau_b1)
+  # }
+  # b0new ~ dnorm(mu_b0, tau_b0)
+  # b1new ~ dnorm(mu_b1, tau_b1)
+
   for(j in 1:nyear) {
-    b0[j] ~ dnorm(mu_b0, tau_b0)
-    b1[j] ~ dnorm(mu_b1, tau_b1)
+    b[j, 1:2] ~ dmnorm(mu_b, tau_b)
+    b0[j] <- b[j,1]
+    b1[j] <- b[j,2]
   }
-  b0new ~ dnorm(mu_b0, tau_b0)
-  b1new ~ dnorm(mu_b1, tau_b1)
+  bnew  ~ dmnorm(mu_b, tau_b)
+  b0new <- bnew[1]
+  b1new <- bnew[2]
+
+  tau_b <- inverse(sig_b)
+  sig_b[1,1] <- sig_b0^2
+  sig_b[1,2] <- sig_b0*sig_b1*rho_b
+  sig_b[2,1] <- sig_b0*sig_b1*rho_b
+  sig_b[2,2] <- sig_b1^2
+
+  mu_b[1] <- mu_b0
+  mu_b[2] <- mu_b1
+
+  rho_b ~ dunif(-1,1)
 
   mu_b0 ~ dnorm(0, 0.001)
   tau_b0 <- pow(sig_b0, -2)
@@ -208,7 +230,7 @@ cat('model {
 
 
 # JAGS controls
-niter <- 100*1000    # 100k in about 2 min on office machine
+niter <- 10*1000    # 100k in about 2 min on office machine
 # ncores <- 3
 ncores <- min(10, parallel::detectCores()-1)
 
@@ -216,7 +238,7 @@ ncores <- min(10, parallel::detectCores()-1)
   tstart <- Sys.time()
   print(tstart)
   proplarge_jags_out <- jagsUI::jags(model.file=proplarge_jags, data=proplarge_data,
-                                     parameters.to.save=c("b0","b1","sig_b0","sig_b1",
+                                     parameters.to.save=c("b0","b1","sig_b0","sig_b1","rho_b",
                                                           "p","trend","mu","sig","pnew","trendnew","munew"),
                                      n.chains=ncores, parallel=T, n.iter=niter,
                                      n.burnin=niter/2, n.thin=niter/2000)
@@ -342,5 +364,35 @@ for(j in 2:ncol(largefish_cumulprop)) lines(largefish_cumulprop[,j], col=adjustc
 legend("topleft", legend=c("1980-2025 aggregated","2019-2025 data"),
        fill=c(adjustcolor(4, alpha.f=.5), NA), lwd=c(NA, 2), border=c(4, NA), col=c(NA, "grey"))
 
+# overlaying median lines (gets ugly)
+med_byyear <- apply(prop_apportion_mcmc_appended, 2:3, median)
+for(j in 1:ncol(med_byyear)) {
+  lines(med_byyear[,j])
+}
 
+# are median envelope bound equivalent to aggregated envelope??
+# ANSWER: NO, oddly, they're roughly equivalent to that median across years thing?
+u95all <- apply(prop_apportion_mcmc_appended, 2:3, quantile, p=0.975)
+l95all <- apply(prop_apportion_mcmc_appended, 2:3, quantile, p=0.025)
+u50all <- apply(prop_apportion_mcmc_appended, 2:3, quantile, p=0.75)
+l50all <- apply(prop_apportion_mcmc_appended, 2:3, quantile, p=0.25)
 
+u95 <- apply(u95all, 1, median)
+l95 <- apply(l95all, 1, median)
+u50 <- apply(u50all, 1, median)
+l50 <- apply(l50all, 1, median)
+
+# do it the old way
+# prop_apportion_allyrs_mcmc_appended <- apply(prop_apportion_mcmc_appended, 1:2, median)
+
+# plot it fresh
+envelope(prop_apportion_allyrs_mcmc_appended,
+         xlab="Day", ylab="Proportion Large",
+         main="All years aggregated")
+lines(u95)
+lines(l95)
+lines(u50)
+lines(l50)
+
+# do it the old way
+prop_apportion_allyrs_mcmc_appended <- apply(prop_apportion_mcmc_appended, 1:2, median)

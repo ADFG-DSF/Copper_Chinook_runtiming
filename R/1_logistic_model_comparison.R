@@ -251,7 +251,7 @@ cat('model {
 
 
 # JAGS controls
-niter <- 2*1000
+niter <- 10*1000
 # niter <- 100*1000    # 100k in about 2 min on office machine
 # ncores <- 3
 ncores <- min(10, parallel::detectCores()-1)
@@ -291,8 +291,11 @@ for(imodel in 1:4) {
 
 par(mfrow=c(1,1))
 for(imodel in 1:4) {
-qq_postpred(outs[[imodel]], p="mu_pp",
-            y = logit(as.vector(proplarge_data$large/proplarge_data$all)))
+  ### --- think about which is the more appropriate here
+  # qq_postpred(outs[[imodel]], p="mu_pp",
+  #             y = logit(as.vector(proplarge_data1$large/proplarge_data1$all)))
+  qq_postpred(outs[[imodel]], p="mu_pp",
+              y = logit(as.vector(proplarge_data2$large/proplarge_data2$all)))
 }
 
 for(imodel in 1:4) {
@@ -301,10 +304,10 @@ for(imodel in 1:4) {
   ## Plotting model output & data for all years
   par(mfrow=c(2,2))
   yearnames <- 2019:2025
-  for(j in 1:proplarge_data$nyear) {
-    plot(x=proplarge_data$day,
-         y=proplarge_data$large[,j] / proplarge_data$all[,j],
-         ylim=c(0, max(proplarge_data$large / proplarge_data$all, na.rm=TRUE)),
+  for(j in 1:proplarge_data2$nyear) {
+    plot(x=proplarge_data2$day,
+         y=proplarge_data2$large[,j] / proplarge_data2$all[,j],
+         ylim=c(0, max(proplarge_data2$large / proplarge_data2$all, na.rm=TRUE)),
          xlab="day", ylab="prop large", type="b", main=yearnames[j])
     legend("topright", fill=adjustcolor(c(2,4), 0.5), col=c(2,4), legend=c("trend","p"), bty="o")
     envelope(proplarge_jags_out, "p", column=j, add=TRUE)
@@ -318,8 +321,8 @@ for(imodel in 1:4) {
     # curve(proplarge_jags_out$q50$b0[j] +
     #               proplarge_jags_out$q50$b1[j]*x,
     #       add=TRUE, lty=2)
-    points(x=proplarge_data$day,
-           y=logit(proplarge_data$large[,j] / proplarge_data$all[,j]))
+    points(x=proplarge_data2$day,
+           y=logit(proplarge_data2$large[,j] / proplarge_data2$all[,j]))
   }
 
   ## Plotting results for a NEW YEAR
@@ -332,6 +335,7 @@ for(imodel in 1:4) {
 
 }
 
+cols <- rcolors(100)
 
 for(imodel in 1:4) {
   proplarge_jags_out <- outs[[imodel]]
@@ -418,3 +422,143 @@ quantile(prop_apportion_mcmc_appended[,8,], 0.975)
 apply(prop_apportion_mcmc_appended[,8,], 2, quantile, 0.975)
 apply(prop_apportion_mcmc_appended[,8,], 2, quantile, 0.975) %>%
   median
+
+
+kfold2 <- function (model.file, data, addl_p = NULL, save_postpred = FALSE, #p,
+                    k = 10, loocv = FALSE, fold_dims = NULL,
+                    p_data, p_model, p_comp, ...)
+{
+  if (!inherits(p_data, "character"))
+    stop("Argument p= must be a character")
+  if (length(p_data) > 1)
+    stop("Only one data object or parameter may be used at once")
+  if (!(p_data %in% names(data)))
+    stop("Argument p_data= must correspond to the name of the data object to test")
+  data_y <- data[[p_data]]
+  comp_y <- data[[p_comp]]
+  if (is.na(k) | loocv) {
+    k <- length(data_y)
+  }
+  fold_dims <- fold_dims[fold_dims <= length(dim(data_y))]
+  if (is.null(dim(data_y)) | min(dim(data_y) == 1)) {
+    fold <- jagshelper:::allocate(n = length(data_y), k = k)
+  }
+  else {
+    if (is.null(fold_dims)) {
+      fold <- array(jagshelper:::allocate(n = length(data_y), k = k),
+                    dim = dim(data_y))
+    }
+    else {
+      rpt_dims <- (1:length(dim(data_y)))[-fold_dims]
+      nfold <- prod(dim(data_y)[fold_dims])
+      fold <- aperm(a = array(allocate(n = nfold, k = k),
+                              dim = c(dim(data_y)[fold_dims], dim(data_y)[rpt_dims])),
+                    perm = order(c(fold_dims, rpt_dims)))
+    }
+  }
+  pred_y <- NA * comp_y
+  if (!is.null(addl_p)) {
+    addl_p_post <- list()
+  }
+  if (interactive())
+    pb <- txtProgressBar(style = 3)
+  for (i_fold in seq(max(fold))) {
+    data_fold <- data
+    data_fold[[p_data]][fold == i_fold] <- NA
+    out_fold <- jagsUI::jags(model.file = model.file, data = data_fold,
+                             parameters.to.save = c(p_model, addl_p), verbose = FALSE,
+                             codaOnly = FALSE, bugs.format = FALSE, ... = ...)
+    pred_fold <- out_fold$q50[[p_model]]
+    pred_y[fold == i_fold] <- pred_fold[fold == i_fold]
+    if (save_postpred) {
+      if (i_fold == 1) {
+        postpred_y <- NA * out_fold$sims.list[[p_model]]
+      }
+      for (irep in 1:dim(postpred_y)[1]) {
+        if (length(dim(postpred_y)) == 2) {
+          postpred_y[irep, ][fold == i_fold] <- out_fold$sims.list[[p_model]][irep,
+          ][fold == i_fold]
+        }
+        if (length(dim(postpred_y)) == 3) {
+          postpred_y[irep, , ][fold == i_fold] <- out_fold$sims.list[[p_model]][irep,
+                                                                                , ][fold == i_fold]
+        }
+        if (length(dim(postpred_y)) == 4) {
+          postpred_y[irep, , , ][fold == i_fold] <- out_fold$sims.list[[p_model]][irep,
+                                                                                  , , ][fold == i_fold]
+        }
+        if (length(dim(postpred_y)) == 5) {
+          postpred_y[irep, , , , ][fold == i_fold] <- out_fold$sims.list[[p_model]][irep,
+                                                                                    , , , ][fold == i_fold]
+        }
+        if (length(dim(postpred_y)) == 6) {
+          postpred_y[irep, , , , , ][fold == i_fold] <- out_fold$sims.list[[p_model]][irep,
+                                                                                      , , , , ][fold == i_fold]
+        }
+      }
+    }
+    if (!is.null(addl_p)) {
+      addl_p_post[[i_fold]] <- out_fold$sims.list[addl_p]
+    }
+    if (interactive())
+      setTxtProgressBar(pb = pb, value = i_fold/max(fold))
+  }
+  out <- list(pred_y = pred_y, data_y = comp_y)
+  if (save_postpred) {
+    out$postpred_y <- postpred_y
+  }
+  out$rmse_pred <- jagshelper:::rmse(x1 = data_y, x2 = comp_y)
+  out$mae_pred <- jagshelper:::mae(x1 = data_y, x2 = comp_y)
+  if (!is.null(addl_p)) {
+    out$addl_p <- addl_p_post
+  }
+  out$fold <- fold
+  return(out)
+}
+
+proplarge_data1$frac <- logit(proplarge_data1$large / proplarge_data1$all)
+proplarge_data2$frac <- logit(proplarge_data2$large / proplarge_data2$all)
+
+proplarge_data1$frac[is.infinite(proplarge_data1$frac)] <- NA
+proplarge_data2$frac[is.infinite(proplarge_data2$frac)] <- NA
+
+# JAGS controls
+niter <- 2*1000    # 100k in about 2 min on office machine
+# ncores <- 3
+ncores <- min(10, parallel::detectCores()-1)
+
+kfolds <- list()
+
+{
+kfolds[[1]] <- kfold2(model.file=model1, data=proplarge_data1,
+                      n.chains=ncores, parallel=T, n.iter=niter,
+                      n.burnin=niter/2, n.thin=niter/2000,
+                      p_data = "large",
+                      p_model = "mu",
+                      p_comp = "frac",
+                      k = 5)
+kfolds[[2]] <- kfold2(model.file=model1, data=proplarge_data2,
+                      n.chains=ncores, parallel=T, n.iter=niter,
+                      n.burnin=niter/2, n.thin=niter/2000,
+                      p_data = "large",
+                      p_model = "mu",
+                      p_comp = "frac",
+                      k = 5)
+kfolds[[3]] <- kfold2(model.file=model2, data=proplarge_data1,
+                      n.chains=ncores, parallel=T, n.iter=niter,
+                      n.burnin=niter/2, n.thin=niter/2000,
+                      p_data = "large",
+                      p_model = "mu",
+                      p_comp = "frac",
+                      k = 5)
+kfolds[[4]] <- kfold2(model.file=model2, data=proplarge_data2,
+                      n.chains=ncores, parallel=T, n.iter=niter,
+                      n.burnin=niter/2, n.thin=niter/2000,
+                      p_data = "large",
+                      p_model = "mu",
+                      p_comp = "frac",
+                      k = 5)
+}
+
+sapply(kfolds, \(x) x$rmse) %>% plot
+sapply(kfolds, \(x) x$mae) %>% plot
